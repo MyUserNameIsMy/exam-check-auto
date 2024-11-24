@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo Upload and Process</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="container">
+    <video id="video" autoplay></video>
+    <img id="photo" alt="Photo">
+
+    <h1>Take Picture or Upload Photo</h1>
+    <div id="result">RESULT: ?</div>
+    <div class="button-container">
+        <button onclick="openCamera()">Open Camera</button>
+        <button id="captureButton" onclick="capturePhoto()" style="display:none;">Take Picture</button>
+        <button onclick="document.getElementById('fileInput').click()">Upload Photo</button>
+        <input type="file" id="fileInput" style="display:none;" onchange="uploadPhoto(event)">
+    </div>
+</div>
+
+<script>
+    let stream;
+
+    async function openCamera() {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: 'environment'
+                }
+            });
+            const video = document.getElementById('video');
+            video.srcObject = stream;
+            video.style.display = 'block';
+            document.getElementById('captureButton').style.display = 'inline-block';
+        } catch (error) {
+            console.error('Error accessing the camera:', error);
+        }
+    }
+
+    async function capturePhoto() {
+        const video = document.getElementById('video');
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const context = canvas.getContext('2d');
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        video.pause();
+        stream.getTracks()[0].stop();
+        video.style.display = 'none';
+        document.getElementById('captureButton').style.display = 'none';
+
+        const imgData = canvas.toDataURL('image/jpeg');
+        console.log('Captured image data:', imgData); // Debug log
+        const resizedImgData = await resizeImage(imgData, 200);
+        document.getElementById('photo').src = resizedImgData;
+        document.getElementById('photo').style.display = 'block';
+        sendImageToBackend(resizedImgData);
+    }
+
+    function uploadPhoto(event) {
+        const file = event.target.files[0];
+        const reader = new FileReader();
+        reader.onload = async function (e) {
+            const resizedImgData = await resizeImage(e.target.result, 400);
+            document.getElementById('photo').src = resizedImgData;
+            document.getElementById('photo').style.display = 'block';
+            sendImageToBackend(resizedImgData);
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function resizeImage(imgData, width) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.src = imgData;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const aspectRatio = img.height / img.width;
+                canvas.width = width;
+                canvas.height = width * aspectRatio;
+                const context = canvas.getContext('2d');
+                context.drawImage(img, 0, 0, canvas.width, canvas.height);
+                resolve(canvas.toDataURL('image/jpeg'));
+            };
+        });
+    }
+
+    async function sendImageToBackend(imgData) {
+        try {
+            const response = await fetch('/process-image', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({image: imgData})
+            });
+            const result = await response.json();
+            console.log('Response from backend:', result); // Debug log
+            if (response.ok) {
+                document.getElementById('photo').src = result.image;
+                document.getElementById('result').innerText = 'RESULT ILYAS ' + result.result.total + '/' + result.result.final_result;
+            } else {
+                document.getElementById('result').innerText = result.error;
+            }
+        } catch (error) {
+            console.error('Error sending image to backend:', error);
+        }
+    }
+</script>
+</body>
+</html>
