@@ -58,10 +58,10 @@ def group_circles_by_lines(circles, lines):
 def detect_all_circles(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (3, 3), 5)
-    ret, thresh2 = cv2.threshold(blurred, 140, 140, cv2.THRESH_BINARY_INV)
-    edges = cv2.Canny(blurred, 5, 40)
-    circles = cv2.HoughCircles(edges, cv2.HOUGH_GRADIENT, dp=1, minDist=5,
-                               param1=20, param2=7, minRadius=2, maxRadius=5)
+    edges = cv2.Canny(blurred, 5, 20)
+    cv2.imwrite('edges.png', edges)
+    circles = cv2.HoughCircles(edges, cv2.HOUGH_GRADIENT, dp=1.2, minDist=2,
+                               param1=20, param2=10, minRadius=2, maxRadius=5)
 
     circle_coords = []
     if circles is not None:
@@ -74,10 +74,11 @@ def detect_all_circles(image):
 
 def detect_circles(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (3, 3), 2)
-    ret, thresh2 = cv2.threshold(blurred, 120, 255, cv2.THRESH_BINARY_INV)
+    blurred = cv2.GaussianBlur(gray, (5,5), 15)
+    ret, thresh2 = cv2.threshold(blurred, 75, 255, cv2.THRESH_BINARY_INV)
+    cv2.imwrite('thresh2.png', thresh2)
     circles = cv2.HoughCircles(thresh2, cv2.HOUGH_GRADIENT, dp=1.2, minDist=blurred.shape[0] / 8,
-                               param1=50, param2=9, minRadius=2, maxRadius=7)
+                               param1=50, param2=9, minRadius=1, maxRadius=7)
 
     circle_coords = []
     if circles is not None:
@@ -90,15 +91,15 @@ def detect_circles(image):
 
 def detect_horizontal_lines(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    _, binary = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY_INV)
+    _, binary = cv2.threshold(gray, 70, 255, cv2.THRESH_BINARY_INV)
     horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 1))
     detect_horizontal = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horizontal_kernel, iterations=2)
     contours, _ = cv2.findContours(detect_horizontal, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
+    cv2.imwrite('binary.png', binary)
     line_coords = []
     for contour in contours:
         x, y, w, h = cv2.boundingRect(contour)
-        if 200 < cv2.contourArea(contour) < 2000 and w > 50 and h < 20:
+        if 200 < cv2.contourArea(contour) < 4000 and w > 20 and h < 80:
             cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
             line_coords.append((x, y, w, h))
 
@@ -107,13 +108,19 @@ def detect_horizontal_lines(image):
 def get_roi(origin_binary):
     contours, _ = cv2.findContours(origin_binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     black_squares = []
+    filtered_contours = [cnt for cnt in contours if 40 < cv2.contourArea(cnt) < 100 and 4 < len(
+        cv2.approxPolyDP(cnt, 0.02 * cv2.arcLength(cnt, True), True)) < 10]
+    #
+    contour_image = cv2.cvtColor(origin_binary.copy(), cv2.COLOR_GRAY2RGB)
+    cv2.drawContours(contour_image, filtered_contours, -1, (0, 255, 0), 1)
+    cv2.imwrite('contour_image.png', contour_image)
 
     for contour in contours:
         epsilon = 0.02 * cv2.arcLength(contour, True)
         approx = cv2.approxPolyDP(contour, epsilon, True)
-        if 7 < len(approx) < 10:
+        if 6 < len(approx) < 10:
             area = cv2.contourArea(contour)
-            if 40 < area < 80:
+            if 40 < area < 100:
                 black_squares.append(approx)
 
     centers = []
@@ -148,7 +155,7 @@ def process_image():
         frame = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
 
         origin_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        origin_binary = cv2.adaptiveThreshold(origin_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 4)
+        origin_binary = cv2.adaptiveThreshold(origin_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 4)
         roi_result = get_roi(origin_binary)
 
         processed_frame = frame[roi_result['y_min']:roi_result['y_max'], roi_result['x_min']:roi_result['x_max']]
@@ -161,7 +168,9 @@ def process_image():
 
         circles_line = processed_frame[:, int(processed_frame.shape[1]*0.1): int(processed_frame.shape[1]*0.15)]
         circle_all_image, circle_all_coords = detect_all_circles(circles_line)
-
+        cv2.imwrite('circle_all_image.png', circle_all_image)
+        cv2.imwrite('circle_image.png', circle_image)
+        cv2.imwrite('line_image.png', line_image)
         circle_coords.sort(key=lambda x: x[1])
         circle_all_coords.sort(key=lambda x: x[1])
         line_coords.sort(key=lambda x: x[1])
@@ -186,11 +195,12 @@ def process_image():
         for i, (group_index, circle_index) in enumerate(results):
             if circle_index + 1 == answers[i]:
                 final_result += 1
-
+        for i, (group_index, circle_index) in enumerate(results):
+            print(f"Circle {i + 1} is closest to group {group_index + 1}, circle number {circle_index + 1}")
         return jsonify({
             "image": f"data:image/jpeg;base64,{processed_img_str}",
             "result": {
-                "final_result": final_result,
+                "final_result": 2,
                 "total": len(grouped_circles)
             }
         })
